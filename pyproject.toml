@@ -1,0 +1,96 @@
+[build-system]
+requires = [
+    "setuptools>=77.0.3",
+]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "modal-workflows"
+version = "0.1.0"
+description = "Resumable ML workflows and long-running training jobs on Modal, with optional Slack alerting"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+keywords = ["modal", "workflows", "machine-learning", "training"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: System :: Distributed Computing",
+    "Typing :: Typed",
+]
+requires-python = ">=3.10, <3.14"
+dependencies = [
+    "modal",
+    "slack-sdk>=3.40.0",
+]
+
+[project.readme]
+file = "README.md"
+content-type = "text/markdown"
+
+[project.urls]
+Homepage = "https://github.com/epidemicsound/modal-workflows"
+Repository = "https://github.com/epidemicsound/modal-workflows"
+Issues = "https://github.com/epidemicsound/modal-workflows/issues"
+Changelog = "https://github.com/epidemicsound/modal-workflows/blob/main/CHANGELOG.md"
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "black",
+    "flake8",
+    "isort",
+    "mypy"
+]
+training = [
+    "pytorch-lightning",
+    "torch",
+]
+
+
+[tool.setuptools]
+include-package-data = true
+zip-safe = false
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+modal_workflows = ["py.typed"]
+
+[tool.black]
+line-length = 100
+
+[tool.isort]
+profile = "black"
+line_length = 100
+known_third_party = ["modal", "pytorch_lightning"]
+known_first_party = ["modal_workflows"]
+known_local_folder = ["src", "tests"]
+
+[tool.mypy]
+strict = true
+# src layout: resolve `src/modal_workflows` as the top-level `modal_workflows` package,
+# so checking `src` does not collide with the installed (py.typed) package.
+mypy_path = "src"
+ignore_missing_imports = true
+disallow_untyped_decorators = false
+explicit_package_bases = true
+
+[tool.pytest.ini_options]
+filterwarnings = [
+    "error",
+    "ignore::UserWarning",
+    "ignore::DeprecationWarning",
+]
+addopts = [
+    "--import-mode=importlib",
+    "--ignore=tests/integration",
+]

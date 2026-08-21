@@ -1,0 +1,72 @@
+name: Bug report
+description: Something in modal-workflows behaves differently than documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please do not include Modal tokens, Slack webhook URLs, or other secrets in
+        logs you paste here.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you observed, and what you expected instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: >
+        The smallest workflow or training function that shows the problem, including the
+        decorator arguments you used.
+      render: python
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs or traceback
+      render: shell
+
+  - type: input
+    id: version
+    attributes:
+      label: modal-workflows version
+      description: The git tag or commit SHA you installed.
+      placeholder: v0.7.0
+    validations:
+      required: true
+
+  - type: input
+    id: modal-version
+    attributes:
+      label: modal version
+      placeholder: "1.0.0"
+    validations:
+      required: true
+
+  - type: input
+    id: python-version
+    attributes:
+      label: Python version
+      placeholder: "3.12"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - "@workflow (multi-step pipelines)"
+        - "@training (long training runs)"
+        - Slack alerting
+        - State and volumes
+        - Other
+    validations:
+      required: true

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Modal platform question
+    url: https://modal.com/docs
+    about: For questions about Modal itself (functions, volumes, GPUs, quotas), start with the Modal docs.
+  - name: Report a security vulnerability
+    url: https://github.com/epidemicsound/modal-workflows/security/advisories/new
+    about: Do not open a public issue for security problems. Report them privately here.
