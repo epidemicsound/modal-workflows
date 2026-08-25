@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "modal-workflows"
-version = "0.1.0"
+version = "0.1.1"
 description = "Resumable ML workflows and long-running training jobs on Modal, with optional Slack alerting"
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]

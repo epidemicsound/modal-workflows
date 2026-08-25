@@ -10,7 +10,7 @@ wheel attached to the corresponding [GitHub Release](https://github.com/epidemic
 
 ## Unreleased
 
-## 0.1.0
+## 0.1.1
 
 First public release.
 

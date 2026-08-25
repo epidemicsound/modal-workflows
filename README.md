@@ -58,22 +58,22 @@ This package is not published to PyPI. Install it from this repository, pinned t
 release tag:
 
 ```bash
-pip install "modal-workflows @ git+https://github.com/epidemicsound/modal-workflows@v0.1.0"
+pip install "modal-workflows @ git+https://github.com/epidemicsound/modal-workflows@v0.1.1"
 
 # with the Lightning training callback (pulls in torch)
-pip install "modal-workflows[training] @ git+https://github.com/epidemicsound/modal-workflows@v0.1.0"
+pip install "modal-workflows[training] @ git+https://github.com/epidemicsound/modal-workflows@v0.1.1"
 ```
 
 With uv:
 
 ```bash
-uv add "modal-workflows @ git+https://github.com/epidemicsound/modal-workflows@v0.1.0"
+uv add "modal-workflows @ git+https://github.com/epidemicsound/modal-workflows@v0.1.1"
 ```
 
 In a `requirements.txt`:
 
 ```
-modal-workflows @ git+https://github.com/epidemicsound/modal-workflows@v0.1.0
+modal-workflows @ git+https://github.com/epidemicsound/modal-workflows@v0.1.1
 ```
 
 Pin a tag rather than a branch. The project is pre-1.0 and minor versions may break
@@ -91,7 +91,7 @@ image = (
     modal.Image.debian_slim()
     .apt_install("git")
     .pip_install(
-        "modal-workflows @ git+https://github.com/epidemicsound/modal-workflows@v0.1.0"
+        "modal-workflows @ git+https://github.com/epidemicsound/modal-workflows@v0.1.1"
     )
 )
 ```
@@ -100,7 +100,7 @@ To avoid installing git, point pip at the tag's source archive instead:
 
 ```python
 image = modal.Image.debian_slim().pip_install(
-    "https://github.com/epidemicsound/modal-workflows/archive/refs/tags/v0.1.0.tar.gz"
+    "https://github.com/epidemicsound/modal-workflows/archive/refs/tags/v0.1.1.tar.gz"
 )
 ```
 
@@ -133,7 +133,7 @@ image = (
     modal.Image.debian_slim()
     .apt_install("git")
     .pip_install(
-        "modal-workflows @ git+https://github.com/epidemicsound/modal-workflows@v0.1.0"
+        "modal-workflows @ git+https://github.com/epidemicsound/modal-workflows@v0.1.1"
     )
 )
 app = modal.App("example", image=image)
