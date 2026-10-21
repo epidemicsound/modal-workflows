@@ -16,14 +16,15 @@ import modal
 import modal.experimental
 
 import modal_workflows.workflows.volumes as workflow_volumes
-from modal_workflows.workflows.alerts import send_exception_alert
-from modal_workflows.workflows.context import WorkflowRestarted
-from modal_workflows.workflows.decorator import (
-    _STATE_NAME_KWARG,
+from modal_workflows.workflows._common import (
     MAX_SELF_MANAGED_TIMEOUT_SECONDS,
-    WorkflowRestartedResult,
-    _resolve_state_name,
+    build_function_kwargs,
+    resolve_state_name,
+    restart_kwargs,
+    validate_self_managed_timeout,
 )
+from modal_workflows.workflows.alerts import send_exception_alert
+from modal_workflows.workflows.decorator import WorkflowRestartedResult
 from modal_workflows.workflows.identifiers import validate_state_name
 
 logger = logging.getLogger(__name__)
@@ -31,7 +32,6 @@ logger = logging.getLogger(__name__)
 _RESTART_METADATA_FILENAME = "training_restart_metadata.json"
 _CHECKPOINT_FILENAME = "latest_checkpoint.ckpt"
 _STATE_NAME_ENV_VAR = "MODAL_WORKFLOWS_TRAINING_STATE_NAME"
-TRAINING_TIMEOUT_SECONDS_ENV_VAR = "MODAL_WORKFLOWS_TRAINING_TIMEOUT_SECONDS"
 
 
 @dataclasses.dataclass
@@ -196,11 +196,11 @@ def training(
     rdma: bool = False,
     **function_kwargs: Any,
 ) -> Any:
-    """Registers a Modal function with workflow volumes and training env for checkpoint restarts.
+    """Registers a Modal function with the state volume and training env for checkpoint restarts.
 
-    Sets ``MODAL_WORKFLOWS_TRAINING_STATE_NAME`` and ``MODAL_WORKFLOWS_TRAINING_TIMEOUT_SECONDS`` so
-    :class:`~modal_workflows.training.callbacks.TrainingCheckpointRestartCallback` can locate
-    the correct checkpoint directory.
+    Sets ``MODAL_WORKFLOWS_TRAINING_STATE_NAME`` so
+    :class:`~modal_workflows.training.callbacks.TrainingCheckpointRestartCallback`
+    can locate the correct checkpoint directory.
     After the wrapped function returns normally, restart metadata written by the callback
     is consumed: the continuation is spawned and
     :class:`~modal_workflows.workflows.decorator.WorkflowRestartedResult` is returned without
@@ -229,32 +229,23 @@ def training(
             (e.g. ``image``, ``gpu``, ``secrets``).
     """
 
-    if self_managed_timeout > MAX_SELF_MANAGED_TIMEOUT_SECONDS:
-        raise ValueError("self_managed_timeout cannot exceed 23 hours")
+    validate_self_managed_timeout(self_managed_timeout)
     if cluster_size is not None and cluster_size < 1:
         raise ValueError("cluster_size must be >= 1")
     if cluster_size is not None and cluster_size > 1 and "gpu" not in function_kwargs:
         raise ValueError("cluster_size > 1 requires a `gpu` function argument")
 
     def decorator(fn: Any) -> modal.Function:
-        """Registers the callable as a Modal function with workflow volumes and timeouts."""
-        merged_kwargs = workflow_volumes.with_workflow_volumes(function_kwargs)
-        merged_kwargs["single_use_containers"] = True
-        if "timeout" in merged_kwargs:
-            raise ValueError(
-                "Custom `timeout` is not allowed in @training. "
-                "Use the `self_managed_timeout` parameter instead."
-            )
-        merged_kwargs["timeout"] = 24 * 3600
+        """Registers the callable as a Modal function with the state volume and timeouts."""
+        merged_kwargs = build_function_kwargs(function_kwargs, "training")
 
         @functools.wraps(fn)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
-            """Runs training, then on the leader applies the restart handoff."""
-            resolved_state_name = _resolve_state_name(app, state_name, kwargs)
-            kwargs_with_state_name = {**kwargs, _STATE_NAME_KWARG: resolved_state_name}
+            """Invokes training, then on the leader applies the metadata handoff."""
+            resolved_state_name = resolve_state_name(app, state_name, kwargs)
+            kwargs_with_state_name = restart_kwargs(kwargs, resolved_state_name)
 
             os.environ[_STATE_NAME_ENV_VAR] = resolved_state_name
-            os.environ[TRAINING_TIMEOUT_SECONDS_ENV_VAR] = str(self_managed_timeout)
             paths = _training_run_paths(resolved_state_name)
 
             if not _is_cluster_leader(cluster_size):
@@ -262,8 +253,6 @@ def training(
 
             try:
                 result = fn(*args, **kwargs)
-            except WorkflowRestarted as restarted:
-                return _handoff_result(fn.__name__, restarted.function_call)
             except Exception as error:
                 if alert_on_error:
                     send_exception_alert(fn, error, app_id=app.app_id)

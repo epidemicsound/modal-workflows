@@ -1,10 +1,12 @@
 # mypy: ignore-errors
-"""Integration test: ``@training`` and ``TrainingCheckpointRestartCallback`` Modal handoff.
+r"""Integration test: ``@training`` and ``TrainingCheckpointRestartCallback`` Modal handoff.
 
 Exercises self-managed timeout, checkpoint resume across Modal spawns, and the local
 entrypoint loop over :class:`~modal_workflows.workflows.decorator.WorkflowRestartedResult`.
 
-Run:  MODAL_ENVIRONMENT=dev uv run modal run tests/integration/test_training_decorator.py
+Run:  make test-training
+  or: MODAL_ENVIRONMENT=$MODAL_TESTING_ENVIRONMENT \
+        uv run modal run tests/integration/test_training_decorator.py
 
 Requires ``MODAL_TOKEN_ID`` and ``MODAL_TOKEN_SECRET``. Install Lightning for local
 imports: ``uv sync --extra training``.
@@ -108,9 +110,9 @@ def run_training_with_handoff() -> dict[str, Any]:
 
 @app.local_entrypoint()
 def main() -> None:
-    result = run_training_with_handoff.remote()
+    call = run_training_with_handoff.spawn()
     result, restart_count = resolve_workflow_restarts(
-        result,
+        call,
         max_retries=MAX_RESTARTS,
         retry_message="Training handoff (timeout); waiting for continuation...",
         error_message="Training exceeded max Modal handoff retries.",

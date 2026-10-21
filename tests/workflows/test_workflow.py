@@ -1,20 +1,13 @@
 # mypy: ignore-errors
 from unittest.mock import MagicMock, patch
 
+import modal
 import pytest
 
 import modal_workflows.workflows.volumes as volumes_module
-from modal_workflows.workflows.context import (
-    WORKFLOW_STEP_MARKER,
-    WorkflowContext,
-    WorkflowRestarted,
-)
-from modal_workflows.workflows.decorator import (
-    _STATE_NAME_KWARG,
-    _resolve_state_name,
-    workflow,
-    workflow_function,
-)
+from modal_workflows.workflows._common import STATE_NAME_KWARG, resolve_state_name
+from modal_workflows.workflows.context import WorkflowContext, WorkflowRestarted
+from modal_workflows.workflows.decorator import workflow
 
 
 @pytest.fixture(autouse=True)
@@ -28,17 +21,14 @@ def mock_workflow_result_volume():
 
 @pytest.fixture(autouse=True)
 def mock_modal_function_call_id():
-    # Workflows are only meant to run inside Modal containers, where
-    # modal.current_function_call_id() returns a real ID. Tests run outside
-    # Modal, so we stub it. Individual tests can override by patching again.
+    # Outside a Modal container current_function_call_id() returns None.
     with patch("modal.current_function_call_id", return_value="fc-test"):
         yield
 
 
 def _make_step(return_value):
-    """Return a mock Modal function that behaves like a @workflow_function step."""
-    func = MagicMock()
-    setattr(func, WORKFLOW_STEP_MARKER, True)
+    """Return a mock Modal function that behaves like an @app.function step."""
+    func = MagicMock(spec=modal.Function)
     call = MagicMock()
     call.get.return_value = return_value
     func.spawn.return_value = call
@@ -62,10 +52,7 @@ def _uncached_state():
 
 
 class TestWorkflowRunsBehavior:
-    """End-to-end tests: workflow decorator + real WorkflowContext.
-    These check what comes out of the workflow given what goes in,
-    not which internal methods were called in what order.
-    """
+    """The workflow decorator with a real WorkflowContext."""
 
     def test_single_step_result_flows_through_to_caller(self):
         step = _make_step("trained_model.pt")
@@ -173,11 +160,9 @@ class TestWorkflowRunsBehavior:
 
             my_workflow(_workflow_state_name="propagated-state")
 
-        assert _STATE_NAME_KWARG not in received
+        assert STATE_NAME_KWARG not in received
 
     def test_explicit_state_name_pins_to_exact_state(self):
-        # Second invocation with the same explicit state_name should find the
-        # step cached from the first invocation and skip re-running it.
         step = _make_step("result")
         state = _uncached_state()
         invocation_count = {"n": 0}
@@ -200,7 +185,7 @@ class TestWorkflowRunsBehavior:
             result = my_workflow()
 
         assert result == "cached_result"
-        step.spawn.assert_called_once()  # only ran on the first invocation
+        step.spawn.assert_called_once()
 
     def test_workflow_kwargs_forwarded_to_user_function(self):
         received = {}
@@ -225,34 +210,34 @@ class TestResolveStateName:
 
     def test_explicit_state_name_takes_priority_over_propagated_kwarg(self):
         app = MagicMock(app_id="ap-abc123")
-        kwargs = {_STATE_NAME_KWARG: "propagated-state", "user_arg": "keep"}
-        state_name = _resolve_state_name(app, "explicit-state", kwargs)
+        kwargs = {STATE_NAME_KWARG: "propagated-state", "user_arg": "keep"}
+        state_name = resolve_state_name(app, "explicit-state", kwargs)
         assert state_name == "explicit-state"
 
     def test_kwarg_is_always_stripped_even_when_explicit_state_name_wins(self):
         app = MagicMock(app_id="ap-abc123")
-        kwargs = {_STATE_NAME_KWARG: "propagated-state", "user_arg": "keep"}
-        _resolve_state_name(app, "explicit-state", kwargs)
+        kwargs = {STATE_NAME_KWARG: "propagated-state", "user_arg": "keep"}
+        resolve_state_name(app, "explicit-state", kwargs)
         assert kwargs == {"user_arg": "keep"}
 
     def test_propagated_kwarg_used_when_no_explicit_state_name(self):
         app = MagicMock(app_id="ap-abc123")
-        kwargs = {_STATE_NAME_KWARG: "propagated-state", "user_arg": "keep"}
-        state_name = _resolve_state_name(app, None, kwargs)
+        kwargs = {STATE_NAME_KWARG: "propagated-state", "user_arg": "keep"}
+        state_name = resolve_state_name(app, None, kwargs)
         assert state_name == "propagated-state"
         assert kwargs == {"user_arg": "keep"}
 
     def test_derives_from_app_id_and_function_call_id_when_nothing_provided(self):
         app = MagicMock(app_id="ap-abc123")
         with patch("modal.current_function_call_id", return_value="fc-from-modal"):
-            state_name = _resolve_state_name(app, None, {})
+            state_name = resolve_state_name(app, None, {})
         assert state_name == "ap-abc123_fc-from-modal"
 
     def test_raises_when_no_kwarg_no_state_name_and_not_in_modal_container(self):
         app = MagicMock(app_id="ap-abc123")
         with patch("modal.current_function_call_id", return_value=None):
             with pytest.raises(RuntimeError, match="Cannot resolve a state name"):
-                _resolve_state_name(app, None, {})
+                resolve_state_name(app, None, {})
 
 
 class TestWorkflowDecorator:
@@ -274,9 +259,6 @@ class TestWorkflowDecorator:
         assert function_kwargs["single_use_containers"] is True
         assert "volumes" in function_kwargs
         assert str(volumes_module.WORKFLOW_STATE_VOLUME_MOUNT_PATH) in function_kwargs["volumes"]
-        assert (
-            str(volumes_module.WORKFLOW_ARTIFACTS_VOLUME_MOUNT_PATH) in function_kwargs["volumes"]
-        )
 
     def test_injects_workflow_context_as_first_argument(self):
         mock_app = MagicMock()
@@ -299,7 +281,7 @@ class TestWorkflowDecorator:
         assert isinstance(captured["ctx"], WorkflowContext)
         assert result == "done"
 
-    def test_catches_workflow_restarted_and_returns_restart_metadata(self):
+    def test_catches_workflow_restarted_and_returns_a_plain_dict(self):
         mock_app = MagicMock()
         mock_app.app_id = "ap-abc123"
         mock_app.function.return_value = lambda f: f
@@ -318,8 +300,56 @@ class TestWorkflowDecorator:
             result = my_workflow()
 
         mock_new_call.get.assert_not_called()
-        assert result.function_name == "my_workflow"
-        assert result.call_id == mock_new_call.object_id
+        assert type(result) is dict
+        assert result == {"_workflow_restarted": True, "call_id": "fc-123"}
+
+    def test_restart_does_not_trigger_slack_alert(self):
+        mock_app = MagicMock()
+        mock_app.app_id = "ap-abc123"
+        mock_app.function.return_value = lambda f: f
+        mock_new_call = MagicMock()
+        mock_new_call.object_id = "fc-123"
+
+        with (
+            patch("modal_workflows.workflows.context.WorkflowState") as mock_state_cls,
+            patch("modal_workflows.workflows.decorator.send_exception_alert") as mock_alert,
+        ):
+            mock_state = MagicMock()
+            mock_state.completed_steps.return_value = []
+            mock_state_cls.return_value = mock_state
+
+            @workflow(mock_app)
+            def my_workflow(ctx):
+                raise WorkflowRestarted(mock_new_call)
+
+            my_workflow()
+
+        mock_alert.assert_not_called()
+
+    def test_ordinary_exception_triggers_slack_alert(self):
+        # Positive control for the test above: confirms send_exception_alert is
+        # patched at a location that actually gets called for a real failure,
+        # so "not called" on the restart path is meaningful rather than vacuous.
+        mock_app = MagicMock()
+        mock_app.app_id = "ap-abc123"
+        mock_app.function.return_value = lambda f: f
+
+        with (
+            patch("modal_workflows.workflows.context.WorkflowState") as mock_state_cls,
+            patch("modal_workflows.workflows.decorator.send_exception_alert") as mock_alert,
+        ):
+            mock_state = MagicMock()
+            mock_state.completed_steps.return_value = []
+            mock_state_cls.return_value = mock_state
+
+            @workflow(mock_app)
+            def my_workflow(ctx):
+                raise ValueError("boom")
+
+            with pytest.raises(ValueError):
+                my_workflow()
+
+        mock_alert.assert_called_once()
 
     def test_raises_when_self_managed_timeout_exceeds_max_23_hours(self):
         mock_app = MagicMock()
@@ -331,94 +361,3 @@ class TestWorkflowDecorator:
             match="self_managed_timeout cannot exceed 23 hours",
         ):
             workflow(mock_app, self_managed_timeout=30 * 3600)
-
-
-class TestWorkflowFunctionDecorator:
-    def test_mounts_artifacts_volume(self):
-        mock_app = MagicMock()
-        mock_app.function.return_value = lambda f: f
-
-        with patch(
-            "modal_workflows.workflows.volumes.create_or_get_volume",
-        ) as mock_create_volume:
-            mock_create_volume.return_value = MagicMock()
-
-            @workflow_function(mock_app)
-            def my_step(data):
-                return data
-
-        function_kwargs = mock_app.function.call_args.kwargs
-        assert "volumes" in function_kwargs
-        assert (
-            str(volumes_module.WORKFLOW_ARTIFACTS_VOLUME_MOUNT_PATH) in function_kwargs["volumes"]
-        )
-
-    def test_does_not_mount_state_volume(self):
-        mock_app = MagicMock()
-        mock_app.function.return_value = lambda f: f
-
-        with patch(
-            "modal_workflows.workflows.volumes.create_or_get_volume",
-        ) as mock_create_volume:
-            mock_create_volume.return_value = MagicMock()
-
-            @workflow_function(mock_app)
-            def my_step(data):
-                return data
-
-        function_kwargs = mock_app.function.call_args.kwargs
-        assert (
-            str(volumes_module.WORKFLOW_STATE_VOLUME_MOUNT_PATH) not in function_kwargs["volumes"]
-        )
-
-    def test_forwards_kwargs_to_app_function(self):
-        mock_app = MagicMock()
-        mock_app.function.return_value = lambda f: f
-
-        with patch(
-            "modal_workflows.workflows.volumes.create_or_get_volume",
-        ) as mock_create_volume:
-            mock_create_volume.return_value = MagicMock()
-
-            @workflow_function(mock_app, gpu="T4", secrets=[])
-            def my_step(data):
-                return data
-
-        function_kwargs = mock_app.function.call_args.kwargs
-        assert function_kwargs["gpu"] == "T4"
-        assert function_kwargs["secrets"] == []
-
-    def test_sets_workflow_step_marker(self):
-        mock_app = MagicMock()
-        mock_app.function.return_value = lambda f: f
-
-        with patch(
-            "modal_workflows.workflows.volumes.create_or_get_volume",
-        ) as mock_create_volume:
-            mock_create_volume.return_value = MagicMock()
-
-            @workflow_function(mock_app)
-            def my_step(data):
-                return data
-
-        assert getattr(my_step, WORKFLOW_STEP_MARKER, False) is True
-
-    def test_preserves_user_volumes(self):
-        mock_app = MagicMock()
-        mock_app.function.return_value = lambda f: f
-        user_volume = MagicMock()
-
-        with patch(
-            "modal_workflows.workflows.volumes.create_or_get_volume",
-        ) as mock_create_volume:
-            mock_create_volume.return_value = MagicMock()
-
-            @workflow_function(mock_app, volumes={"/mnt/data": user_volume})
-            def my_step(data):
-                return data
-
-        function_kwargs = mock_app.function.call_args.kwargs
-        assert function_kwargs["volumes"]["/mnt/data"] is user_volume
-        assert (
-            str(volumes_module.WORKFLOW_ARTIFACTS_VOLUME_MOUNT_PATH) in function_kwargs["volumes"]
-        )

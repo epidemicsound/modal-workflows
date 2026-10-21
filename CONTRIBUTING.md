@@ -42,11 +42,22 @@ What you need:
 
 1. **Authenticated Modal credentials.** Installing the CLI is not enough; run
    `modal token new`, or set `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET`.
-2. **A Modal environment matching `MODAL_ENVIRONMENT`**, which defaults to `dev`.
-   Override it if your workspace uses a different name:
+2. **`MODAL_TESTING_ENVIRONMENT` set to the Modal environment to run in.** There is no
+   default, and every integration target stops if it is unset, so the tests never land
+   in your default environment by accident. Use a scratch environment rather than one
+   that runs real workflows, because the tests write to the shared `workflow-state`
+   volume there:
 
    ```bash
-   make test-e2e MODAL_ENVIRONMENT=my-environment
+   modal environment create workflows-testing   # once, any name works
+   export MODAL_TESTING_ENVIRONMENT=workflows-testing
+   make test-e2e
+   ```
+
+   To run a test file directly instead of through `make`, pass the environment yourself:
+
+   ```bash
+   MODAL_ENVIRONMENT=$MODAL_TESTING_ENVIRONMENT uv run modal run tests/integration/test_e2e_workflow.py
    ```
 
 3. **All extras installed locally** (`make install`). Every target does this for you.

@@ -4,9 +4,11 @@
 Do not run directly — lifecycle is managed by test_deployed_app_isolation.py.
 """
 
+import hashlib
+
 import modal
 
-from modal_workflows.workflows.decorator import workflow, workflow_function
+from modal_workflows.workflows.decorator import workflow
 
 from tests.integration.utilities import build_workflows_image  # isort: skip
 
@@ -15,7 +17,7 @@ image = build_workflows_image()
 app = modal.App(APP_NAME)
 
 
-@workflow_function(app, image=image)
+@app.function(image=image)
 def fast_step(label: str) -> str:
     return f"{label}:done"
 
@@ -31,33 +33,21 @@ def run_workflow(ctx, scenario: str = "normal") -> dict:
 
 @workflow(app, image=image, retries=1)
 def retry_workflow(ctx) -> dict:
-    """Proves that Modal retries share state.
-
-    First attempt: runs step_a, writes a marker, then raises to force a retry.
-    Second attempt (same function_call_id → same state_name):
-        - step_a is found in cache and skipped,
-        - marker exists so the raise is bypassed,
-        - step_b runs and the result is returned.
-
-    If the retry used a *different* state_name the marker would not exist,
-    the workflow would raise again, exhaust retries, and the test would fail.
-    """
+    """Raises once after step_a; the retry only succeeds if it shares the first attempt's state."""
     step_a = ctx.step(fast_step, "step_a", "data")
 
-    marker = ctx.artifacts_run_path / "retry_done.marker"
-    if not marker.exists():
-        marker.parent.mkdir(parents=True, exist_ok=True)
-        marker.write_text("done")
-        ctx.commit_artifacts_volume()
+    marker_name = f"test-retry-marker-{hashlib.sha256(ctx.state_name.encode()).hexdigest()[:32]}"
+    marker = modal.Dict.from_name(marker_name, create_if_missing=True)
+    if "failed_once" not in marker:
+        marker["failed_once"] = True
         raise RuntimeError("Forced failure — Modal will retry with the same function_call_id.")
 
-    step_b = ctx.step(fast_step, "step_b", step_a)
-
-    # Cleanup so the test does not leak state/artifacts across CI runs.
-    marker.unlink()
-    ctx.commit_artifacts_volume()
-    state_name = ctx.state_name
-    ctx.finish()
+    try:
+        step_b = ctx.step(fast_step, "step_b", step_a)
+        state_name = ctx.state_name
+        ctx.finish()
+    finally:
+        modal.Dict.objects.delete(marker_name)
 
     return {
         "state_name": state_name,

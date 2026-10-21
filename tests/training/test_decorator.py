@@ -7,7 +7,6 @@ import pytest
 
 import modal_workflows.training.decorator as training_module
 from modal_workflows.training.decorator import training
-from modal_workflows.workflows.context import WorkflowRestarted
 
 
 @pytest.fixture(autouse=True)
@@ -21,9 +20,7 @@ def mock_volume_creation_and_mount_paths(tmp_path: Path):
 
 @pytest.fixture(autouse=True)
 def mock_modal_function_call_id():
-    # Training is only meant to run inside Modal containers, where
-    # modal.current_function_call_id() returns a real ID. Tests run outside
-    # Modal, so we stub it. Individual tests can override by patching again.
+    # Outside a Modal container current_function_call_id() returns None.
     with patch("modal.current_function_call_id", return_value="fc-test"):
         yield
 
@@ -148,19 +145,6 @@ class TestTrainingDecoratorClusterRankSemantics:
         _, exc = mock_alert.call_args[0]
         assert isinstance(exc, RuntimeError)
         assert "boom" in str(exc)
-
-    def test_non_leader_workflow_restarted_is_not_converted_to_handoff_result(self):
-        app = _build_mock_app()
-        function_call = MagicMock()
-
-        with patch("modal_workflows.training.decorator._is_cluster_leader", return_value=False):
-
-            @training(app)
-            def train_fn() -> str:
-                raise WorkflowRestarted(function_call)
-
-            with pytest.raises(WorkflowRestarted):
-                train_fn()
 
 
 class TestTrainingStateNameIsolation:
