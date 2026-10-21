@@ -296,7 +296,7 @@ def startup_timeout_workflow(ctx: WorkflowContext) -> dict:
     error_message = None
     try:
         ctx.step(SlowStartWorker().work, "long_call", LONG_CALL_SECONDS)
-    except BaseException as error:  # noqa: BLE001
+    except Exception as error:  # noqa: BLE001
         error_type = f"{type(error).__module__}.{type(error).__name__}"
         error_message = str(error)
     ctx.finish()
@@ -336,7 +336,7 @@ def main() -> None:
     for name, scenario in SCENARIOS.items():
         try:
             scenario()
-        except BaseException as error:  # noqa: BLE001
+        except Exception as error:  # noqa: BLE001
             failures[name] = error
             print(f"FAIL: {name}: {type(error).__name__}: {error}")
     if failures:

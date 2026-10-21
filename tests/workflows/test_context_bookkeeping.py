@@ -801,7 +801,7 @@ class TestCrashAtEveryRequest:
             try:
                 run_map(env.new_context(), func, mode)
             except ProcessKilled:
-                pass
+                pass  # The simulated kill is expected; the continuation below must recover.
             env.dict.on_request = env.volume.on_request = None
 
             continuation = env.restart_after_kill(lose_uncommitted)

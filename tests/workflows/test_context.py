@@ -838,6 +838,6 @@ class TestPathIdentifierValidation:
 
     def test_map_accepts_item_step_ids_at_the_length_limit(self, workflow_context):
         mock_func = MagicMock(spec=modal.Function)
-        mock_func.spawn.side_effect = lambda item: _finished_call(item)
+        mock_func.spawn.side_effect = _finished_call
 
         assert workflow_context.map(mock_func, list(range(10)), "s" * 126) == list(range(10))

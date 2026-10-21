@@ -12,7 +12,7 @@ from unittest.mock import MagicMock
 
 import modal
 
-import modal_workflows.workflows.state as state_module
+from modal_workflows.workflows import state as state_module
 from modal_workflows.workflows.context import WorkflowContext
 from modal_workflows.workflows.state import WorkflowState
 
@@ -56,6 +56,7 @@ class FakeModalDict:
         self.put_delays = {}
         self.clear_delay = 0.0
         self.put = _DictMethod(self.__setitem__, lambda key, *_: self.put_delays.get(key, 0.0))
+        # Looked up on each call so tests can patch ``_clear`` on an existing instance.
         self.clear = _DictMethod(lambda: self._clear(), lambda: self.clear_delay)
         self._lock = threading.Lock()
 
