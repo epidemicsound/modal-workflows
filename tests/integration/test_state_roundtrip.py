@@ -1,7 +1,9 @@
 # mypy: ignore-errors
-"""Integration test: WorkflowState round-trip against a real modal.Dict.
+r"""Integration test: WorkflowState round-trip against a real modal.Dict.
 
-Run:  uv run python -m tests.integration.test_state_roundtrip
+Run:  make test-state
+  or: MODAL_ENVIRONMENT=$MODAL_TESTING_ENVIRONMENT \
+        uv run python -m tests.integration.test_state_roundtrip
 Requires MODAL_TOKEN_ID and MODAL_TOKEN_SECRET env vars.
 """
 
@@ -53,7 +55,7 @@ def main() -> None:
     app = modal.App(f"test-state-roundtrip-{uuid.uuid4().hex[:8]}")
 
     with modal.Volume.ephemeral() as state_volume:
-        function_kwargs = workflow_volumes.with_workflow_volumes(
+        function_kwargs = workflow_volumes.with_state_volume(
             {
                 "image": integration_image,
                 "volumes": {

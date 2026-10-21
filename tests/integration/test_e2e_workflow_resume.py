@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import modal
 
-from modal_workflows.workflows import WorkflowContext, workflow, workflow_function
+from modal_workflows.workflows import WorkflowContext, workflow
 
 from tests.integration.utilities import (  # isort: skip
     build_workflows_image,
@@ -19,12 +19,12 @@ image = build_workflows_image()
 app = modal.App("test-workflow-resume", image=image)
 
 
-@workflow_function(app)
+@app.function()
 def process_item(item_id: int) -> str:
     return f"item-{item_id}-done"
 
 
-@workflow_function(app)
+@app.function()
 def sleep_for_seconds(seconds: int) -> str:
     import time
 
@@ -62,9 +62,9 @@ def resumable_workflow(ctx: WorkflowContext) -> dict[str, object]:
 
 @app.local_entrypoint()
 def main() -> None:
-    result = resumable_workflow.remote()
+    call = resumable_workflow.spawn()
     result, retries = resolve_workflow_restarts(
-        result,
+        call,
         max_retries=10,
         retry_message="Workflow restarted, waiting for resumed run...",
         error_message="Workflow exceeded max restart retries.",

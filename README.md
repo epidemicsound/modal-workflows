@@ -16,7 +16,7 @@ a chain of containers instead of dying at hour 24.
 
 | Area | Import path | Role |
 |------|-------------|------|
-| Workflows | `modal_workflows.workflows` | `@workflow`, `@workflow_function`, `WorkflowContext`, restarts, artifact volumes, Slack alerts |
+| Workflows | `modal_workflows.workflows` | `@workflow`, `WorkflowContext`, restarts, Slack alerts |
 | Training | `modal_workflows.training` | `@training` (framework-agnostic restart handoff) and `TrainingCheckpointRestartCallback` (Lightning) for checkpoint + timeout handoff |
 
 Optional dependency groups in `pyproject.toml`: `training`, `dev`.
@@ -58,22 +58,22 @@ This package is not published to PyPI. Install it from this repository, pinned t
 release tag:
 
 ```bash
-pip install "modal-workflows @ git+https://github.com/epidemicsound/modal-workflows@v0.1.1"
+pip install "modal-workflows @ git+https://github.com/epidemicsound/modal-workflows@v0.2.0"
 
 # with the Lightning training callback (pulls in torch)
-pip install "modal-workflows[training] @ git+https://github.com/epidemicsound/modal-workflows@v0.1.1"
+pip install "modal-workflows[training] @ git+https://github.com/epidemicsound/modal-workflows@v0.2.0"
 ```
 
 With uv:
 
 ```bash
-uv add "modal-workflows @ git+https://github.com/epidemicsound/modal-workflows@v0.1.1"
+uv add "modal-workflows @ git+https://github.com/epidemicsound/modal-workflows@v0.2.0"
 ```
 
 In a `requirements.txt`:
 
 ```
-modal-workflows @ git+https://github.com/epidemicsound/modal-workflows@v0.1.1
+modal-workflows @ git+https://github.com/epidemicsound/modal-workflows@v0.2.0
 ```
 
 Pin a tag rather than a branch. The project is pre-1.0 and minor versions may break
@@ -91,7 +91,7 @@ image = (
     modal.Image.debian_slim()
     .apt_install("git")
     .pip_install(
-        "modal-workflows @ git+https://github.com/epidemicsound/modal-workflows@v0.1.1"
+        "modal-workflows @ git+https://github.com/epidemicsound/modal-workflows@v0.2.0"
     )
 )
 ```
@@ -100,7 +100,7 @@ To avoid installing git, point pip at the tag's source archive instead:
 
 ```python
 image = modal.Image.debian_slim().pip_install(
-    "https://github.com/epidemicsound/modal-workflows/archive/refs/tags/v0.1.1.tar.gz"
+    "https://github.com/epidemicsound/modal-workflows/archive/refs/tags/v0.2.0.tar.gz"
 )
 ```
 
@@ -127,24 +127,24 @@ immediately available without reinstalling.
 ```python
 import modal
 
-from modal_workflows.workflows import workflow, workflow_function
+from modal_workflows.workflows import workflow
 
 image = (
     modal.Image.debian_slim()
     .apt_install("git")
     .pip_install(
-        "modal-workflows @ git+https://github.com/epidemicsound/modal-workflows@v0.1.1"
+        "modal-workflows @ git+https://github.com/epidemicsound/modal-workflows@v0.2.0"
     )
 )
 app = modal.App("example", image=image)
 
 
-@workflow_function(app)
+@app.function()
 def add(a: int, b: int) -> int:
     return a + b
 
 
-@workflow_function(app)
+@app.function()
 def double(x: int) -> int:
     return x * 2
 
@@ -162,8 +162,18 @@ def main():
     print(pipeline.remote())
 ```
 
-Every function used as a step must be decorated with `@workflow_function(app)`;
-`ctx.step`, `ctx.spawn`, `ctx.map`, and `ctx.parallel` raise `TypeError` otherwise.
+Any `modal.Function` can be a step: a function decorated with `@app.function()`, or a
+bound method of an `@app.cls` class such as `MyModel().predict`. Anything else, such as a
+plain callable or the class itself, makes `ctx.step`, `ctx.spawn`, `ctx.map`, and
+`ctx.parallel` raise `TypeError`. `@workflow` and `@training` functions are entry points,
+not steps: call a `@training` function directly rather than nesting it in a workflow.
+Classes using `@modal.enter`, `@modal.concurrent`, or a different image from the workflow
+are supported. A class with a slow `@modal.enter` should set `startup_timeout` explicitly,
+because `timeout` is also the default startup limit.
+
+`retries` may be passed to `@workflow` and `@training` (unlike `timeout`): a graceful
+restart returns a value rather than raising, so Modal never treats it as a failure to
+retry.
 `ctx.finish()` clears the persisted state to mark the run as complete, so call it only
 on the success path.
 
@@ -175,6 +185,14 @@ id. When a container is replaced, whether from the self-managed timeout, a crash
 preemption, the new container reads the same state: completed steps return their cached
 result, and steps still running are inherited by call id instead of being started again.
 
+When `@workflow` hands off at its self-managed timeout, the call returns
+`{"_workflow_restarted": True, "call_id": "<id>"}` instead of the function's normal
+result. It is a plain dict so that a caller without this package installed can read it.
+The continuation is already running by then; wait for it with
+`modal.FunctionCall.from_id(call_id).get()`. Calling the workflow again yourself does not
+resume it. Without an explicit `state_name` that starts a new, unrelated run, and with the
+same explicit `state_name` it races the continuation on the same state.
+
 State is keyed by `state_name`:
 
 - **Omitted** (the default): derived as `{app.app_id}_{function_call_id}`. Each
@@ -182,15 +200,21 @@ State is keyed by `state_name`:
 - **Explicit**: used as-is. Pass the same `state_name` to deliberately resume a specific
   earlier run, for example after a crash you have since fixed.
 
+`WorkflowState` hashes the name to a fixed 32-character identifier before naming its Modal
+Dict and step-result directory after it, so it stays within Modal's 64-character object-name limit.
+The mapping from `state_name` to the hashed name is logged at startup.
+
 ```python
 @workflow(app, state_name="nightly-retrain")
 def nightly(ctx): ...
 ```
 
-Both `state_name` and `step_id` become directory and file names on the state volume, so
-they are validated as single path components: up to 128 characters, starting with a
+Both `state_name` and `step_id` are used in directory and file names on the state volume,
+so they are validated as single path components: up to 128 characters, starting with a
 letter or digit and containing only letters, digits, `.`, `_` and `-`. Anything else,
-including path separators and `..`, raises `ValueError`.
+including path separators and `..`, raises `ValueError`. `ctx.map()` and `ctx.parallel()`
+key each item as `{step_id}_{index}`, so that full key must fit within the limit; it is
+checked before anything is spawned.
 
 ### Modal resources it creates
 
@@ -199,12 +223,12 @@ Modal environment your credentials point at.
 
 | Resource | Where | Contents |
 |----------|-------|----------|
-| Volume `workflow-state` (v2) | mounted at `/mnt/workflow-state` | Pickled step results, training checkpoints, restart metadata |
-| Volume `workflow-artifacts` (v2) | mounted at `/mnt/workflow-artifacts` | `<state_name>/` per-run artifacts and event log, plus a `shared/` directory |
-| Dict `state-<state_name>` | Modal Dict | Function-call ids of in-flight steps, for restart inheritance |
+| Volume `workflow-state` (v2) | mounted at `/mnt/workflow-state` | Pickled step results (under the hashed state name), training checkpoints and restart metadata (under `<state_name>/`) |
+| Dict `state-<hashed state_name>` | Modal Dict | Function-call ids of in-flight steps, for restart inheritance |
 
-`@workflow_function` mounts only the artifacts volume; `@workflow` and `@training` mount
-both. Because step results are unpickled from `workflow-state`, treat that volume as
+Only the `@workflow` orchestrator and `@training` functions mount the state volume; step
+functions do not. Outputs such as model files belong on storage you mount on your own
+functions. Because step results are unpickled from `workflow-state`, treat that volume as
 trusted storage (see [SECURITY.md](SECURITY.md)).
 
 ## `WorkflowContext` API
@@ -213,17 +237,41 @@ trusted storage (see [SECURITY.md](SECURITY.md)).
 |--------|---------|
 | `ctx.step(func, step_id, *args, wait_timeout=None, **kwargs)` | Run one step synchronously and cache its result |
 | `ctx.spawn(func, step_id, *args, **kwargs)` | Start a step asynchronously; the returned handle's `.get()` stays timeout-aware |
-| `ctx.map(func, items, step_id, *args, wait_timeout=None, **kwargs)` | Fan out over `items`, caching per item as `{step_id}_{index}` |
-| `ctx.parallel([(func, *args), ...], step_id, wait_timeout=None)` | Run different steps concurrently, caching each individually |
+| `ctx.map(func, items, step_id, *args, wait_timeout=None, return_exceptions=False, **kwargs)` | Fan out over `items`, caching per item as `{step_id}_{index}` |
+| `ctx.parallel([(func, *args), ...], step_id, wait_timeout=None, return_exceptions=False)` | Run different steps concurrently, caching each individually |
 | `ctx.finish()` | Clear persisted state after a successful run |
 | `ctx.should_restart` / `ctx.restart_if_needed()` | Check the self-managed timeout, or hand off now if it has elapsed |
-| `ctx.artifacts_run_path` / `ctx.artifacts_shared_path` | Per-run and shared directories on the artifacts volume |
-| `ctx.commit_artifacts_volume()` | Persist files you wrote to the artifacts volume |
-| `ctx.log_event(message)` | Append a timestamped line to the run's event log |
-| `ctx.dashboard_url` | Link to the app in the Modal dashboard |
+| `ctx.log_event(message)` | Log a workflow event through Python's `logging` module |
 
 The step helpers already check the timeout between steps. Call `ctx.restart_if_needed()`
 yourself inside long stretches of local work in the orchestrator.
+
+### Caching and ordering in `ctx.map`
+
+`ctx.map` caches each result by the item's position in `items`. When a workflow resumes,
+it runs the workflow body again from the top and rebuilds the list, so `items` must come
+back in the same order. Sort lists whose order can vary between runs, such as a query
+without `ORDER BY`, a directory or bucket listing, or a `set`. Otherwise a cached result
+is silently attributed to the wrong item.
+
+### Handling failed items
+
+By default, the first failing item in `ctx.map` or `ctx.parallel` raises and aborts the
+workflow. With `return_exceptions=True`, the slot for a failed item holds a plain-dict
+snapshot of the exception instead (keys `exc_type`, `message`, `traceback_str`), and the
+other items carry on:
+
+```python
+from modal_workflows.workflows import is_workflow_item_failure
+
+results = ctx.map(process, items, step_id="process", return_exceptions=True)
+failed = [r for r in results if is_workflow_item_failure(r)]
+```
+
+Failures are cached like results, so a resumed run does not retry them. A graceful restart
+is never treated as an item failure. The snapshot is a dict rather than the exception
+object so that it survives pickling and can be read by a caller that does not have this
+package installed.
 
 ## Long training runs
 
@@ -275,9 +323,8 @@ turns it into a `torch.distributed.run` command line.
 |----------------------|----------|--------|
 | `SLACK_WEBHOOK_URL` | No | Enables `alert()` and `alert_on_error`. Without it, alerting logs a warning and continues. Supply it through a Modal Secret. |
 | `MODAL_WORKSPACE` | No | Your Modal workspace slug, so dashboard links in alerts point at the right workspace. |
-| `MODAL_ENVIRONMENT` | No | Standard Modal variable. Also used to build dashboard links; falls back to `dev`. |
+| `MODAL_ENVIRONMENT` | No | Standard Modal variable. Also used to build dashboard links; omitted from the link when unset. |
 | `MODAL_WORKFLOWS_TRAINING_STATE_NAME` | Set for you | Written by `@training` so the Lightning callback can find the checkpoint directory. Do not set it yourself. |
-| `MODAL_WORKFLOWS_TRAINING_TIMEOUT_SECONDS` | Set for you | Written by `@training` from `self_managed_timeout`. |
 
 ## Slack alerting
 
@@ -311,10 +358,15 @@ They need:
 
 - **Authenticated Modal credentials** (`modal token new`, or `MODAL_TOKEN_ID` and
   `MODAL_TOKEN_SECRET`). Having the CLI installed is not sufficient on its own.
-- **A Modal environment matching `MODAL_ENVIRONMENT`**, which defaults to `dev`:
+- **`MODAL_TESTING_ENVIRONMENT` set to the Modal environment to run in.** There is no
+  default, and the targets stop if it is unset. Use a scratch environment rather than one
+  that runs real workflows, because the tests write to the shared `workflow-state` volume
+  there:
 
   ```bash
-  make test-e2e MODAL_ENVIRONMENT=my-environment
+  modal environment create workflows-testing   # once, any name works
+  export MODAL_TESTING_ENVIRONMENT=workflows-testing
+  make test-e2e
   ```
 
 - **A `slack-alerts-test` Modal secret, for `make test-alerts` only**, holding the

@@ -1,12 +1,14 @@
 # mypy: ignore-errors
-"""Integration test: alerting with real Modal functions.
+r"""Integration test: alerting with real Modal functions.
 
 Tests both functionalities:
   1. Explicit alert() calls from regular functions and workflows.
   2. Automatic alerting on exceptions via @alert_on_error decorator
      and workflow(alert_on_error=True).
 
-Run:  uv run modal run tests/integration/test_e2e_alerts.py
+Run:  make test-alerts
+  or: MODAL_ENVIRONMENT=$MODAL_TESTING_ENVIRONMENT \
+        uv run modal run tests/integration/test_e2e_alerts.py
 Requires MODAL_TOKEN_ID and MODAL_TOKEN_SECRET env vars, and a 'slack-alerts-test'
 Modal secret holding SLACK_WEBHOOK_URL:
 
@@ -28,17 +30,11 @@ app = modal.App(
 )
 
 
-# -- Regular function: explicit alert() -----------------------------------------
-
-
 @app.function()
 def task_with_explicit_alert():
     """Sends an explicit alert and returns normally."""
     alert("🧪 [test] explicit alert() from a regular function", app_id=app.app_id)
     return "ok"
-
-
-# -- Regular function: @alert_on_error ------------------------------------------
 
 
 @app.function()
@@ -48,17 +44,11 @@ def task_that_fails():
     raise ValueError("simulated failure in task_that_fails")
 
 
-# -- Workflow: explicit alert() + alert_on_error=True ----------------------------
-
-
 @workflow(app, alert_on_error=True)
 def workflow_that_alerts_and_fails(ctx):
     """Sends an explicit alert, then raises to trigger workflow-level alert_on_error."""
     alert("🧪 [test] explicit alert() from a workflow", app_id=app.app_id)
     raise RuntimeError("simulated failure in workflow_that_alerts_and_fails")
-
-
-# -- Entrypoint ------------------------------------------------------------------
 
 
 @app.local_entrypoint()

@@ -25,15 +25,13 @@ MODAL_WORKSPACE_ENV = "MODAL_WORKSPACE"
 def modal_app_url(app_id: str) -> str:
     """Build a Modal dashboard URL for the given app.
 
-    The workspace slug is read from the ``MODAL_WORKSPACE`` environment variable;
-    if it is unset the link omits the workspace segment.
+    The workspace slug is read from the ``MODAL_WORKSPACE`` environment variable and the
+    environment from Modal's config; either segment is omitted when unset.
     """
-
-    environment = modal.config.config["environment"] or "dev"
     workspace = os.environ.get(MODAL_WORKSPACE_ENV)
-    if workspace:
-        return f"https://modal.com/apps/{workspace}/{environment}/{app_id}"
-    return f"https://modal.com/apps/{environment}/{app_id}"
+    environment = modal.config.config["environment"]
+    segments = [segment for segment in (workspace, environment, app_id) if segment]
+    return "https://modal.com/apps/" + "/".join(segments)
 
 
 def _modal_context_lines(app_id: str) -> list[str]:

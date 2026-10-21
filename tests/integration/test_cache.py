@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import modal
 
-from modal_workflows.workflows import WorkflowContext, workflow, workflow_function
+from modal_workflows.workflows import WorkflowContext, workflow
 
 from tests.integration.utilities import build_workflows_image  # isort: skip
 
@@ -13,34 +13,30 @@ image = build_workflows_image()
 app = modal.App("test-e2e-cache", image=image)
 
 
-@workflow_function(app)
+@app.function()
 def add(a: int, b: int) -> int:
     return a + b
 
 
-@workflow_function(app)
+@app.function()
 def double(x: int) -> int:
     return x * 2
 
 
-@workflow_function(app)
+@app.function()
 def square(x: int) -> int:
     return x**2
 
 
 @workflow(app)
 def cache_test_workflow(ctx: WorkflowContext) -> dict:
-    # step (sync)
     step_result = ctx.step(add, "step_add", 1, 2)
 
-    # spawn + get (async)
     call = ctx.spawn(add, "spawn_add", 10, 20)
     spawn_result = call.get()
 
-    # map
     map_results = ctx.map(double, [1, 2, 3], step_id="map_double")
 
-    # parallel
     parallel_results = ctx.parallel(
         [
             (add, 5, 6),
@@ -83,7 +79,6 @@ def cache_test_workflow(ctx: WorkflowContext) -> dict:
 def main():
     result = cache_test_workflow.remote()
 
-    # correctness
     assert result["step_result"] == 3, f"step: expected 3, got {result['step_result']}"
     assert result["spawn_result"] == 30, f"spawn: expected 30, got {result['spawn_result']}"
     assert result["map_results"] == [2, 4, 6], f"map: expected [2,4,6], got {result['map_results']}"
@@ -92,7 +87,6 @@ def main():
         16,
     ], f"parallel: expected [11,16], got {result['parallel_results']}"
 
-    # cache: step results
     expected_completed_steps = {
         "step_add",
         "spawn_add",

@@ -1,5 +1,5 @@
 # mypy: ignore-errors
-"""Integration test: deployed-app state isolation, retry stability, graceful restart.
+r"""Integration test: deployed-app state isolation, retry stability, graceful restart.
 
 Verifies that:
 1. Concurrent calls to a deployed app each get an isolated state (different function_call_ids).
@@ -11,7 +11,10 @@ Verifies that:
 App lifecycle is managed entirely by this script.
 
 Run from the repository root:
-    .venv/bin/python tests/integration/test_deployed_app_isolation.py
+    make test-deployed-isolation
+or:
+    MODAL_ENVIRONMENT=$MODAL_TESTING_ENVIRONMENT \
+        uv run python tests/integration/test_deployed_app_isolation.py
 """
 
 import sys

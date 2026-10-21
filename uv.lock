@@ -685,7 +685,7 @@ wheels = [
 
 [[package]]
 name = "modal-workflows"
-version = "0.1.1"
+version = "0.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "modal" },
@@ -710,7 +710,7 @@ requires-dist = [
     { name = "black", marker = "extra == 'dev'" },
     { name = "flake8", marker = "extra == 'dev'" },
     { name = "isort", marker = "extra == 'dev'" },
-    { name = "modal" },
+    { name = "modal", specifier = ">=1.3.2" },
     { name = "mypy", marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'dev'" },
     { name = "pytorch-lightning", marker = "extra == 'training'" },
